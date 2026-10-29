@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Scan lifecycle record. Status: queued | running | completed | failed
+model Scan {
+  id           String    @id @default(uuid())
+  targetUrl    String
+  mode         String    @default("live") // live | demo
+  status       String    @default("queued")
+  progress     Int       @default(0) // 0-100
+  currentStep  Int       @default(0) // 1-12 pipeline step currently executing
+  phpDetection String? // likely | not_detected | inconclusive
+  phpEvidence  String? // JSON: Evidence[]
+  phpFramework String?
+  summary      String? // JSON: summary aggregates
+  htmlReportCache String? // Pre-rendered standalone HTML report
+  crawlErrorCount Int    @default(0)
+  error        String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  pages     Page[]
+  features  Feature[]
+  findings  Finding[]
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model Page {
+  id         String   @id @default(uuid())
+  scanId     String
+  scan       Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  url        String
+  httpStatus Int?
+  depth      Int      @default(0)
+  title      String?
+
+  @@index([scanId])
+}
+
+model Feature {
+  id       String @id @default(uuid())
+  scanId   String
+  scan     Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  kind     String // form_login | form_search | form_upload | form_generic | query_param | php_route | file_route
+  name     String
+  location String
+  details  String? // JSON
+
+  @@index([scanId])
+}
+
+model Finding {
+  id          String @id @default(uuid())
+  scanId      String
+  scan        Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  ruleId      String
+  title       String
+  severity    String // critical | high | medium | low | info
+  confidence  String // high | medium | low
+  status      String // confirmed | potential | inconclusive
+  affectedUrl String
+  evidence    String // JSON: Evidence[]
+  remediation String
+
+  @@index([scanId])
+  @@index([severity])
+}
