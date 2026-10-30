@@ -1,0 +1,53 @@
+{
+  "id": "demo-php-inconclusive",
+  "targetUrl": "https://legacy.example.invalid/",
+  "mode": "demo",
+  "status": "completed",
+  "progress": 100,
+  "currentStep": 12,
+  "phpDetection": "inconclusive",
+  "phpFramework": null,
+  "phpEvidence": {
+    "status": "inconclusive",
+    "evidence": [
+      {
+        "indicator": "Single .php endpoint",
+        "value": "/legacy.php",
+        "strength": "medium",
+        "source": "url",
+        "explanation": "One PHP-looking path is supporting evidence only and may be static or rewritten; this observation is simulated."
+      },
+      {
+        "indicator": "Generic CSRF cookie",
+        "value": "XSRF-TOKEN",
+        "strength": "weak",
+        "source": "cookie",
+        "explanation": "This cookie is used by many technologies and is weak, ambiguous evidence in this sample."
+      }
+    ],
+    "frameworks": [],
+    "assessment": {
+      "method": "heuristic",
+      "calibrated": false,
+      "explanation": "The fixture contains weak or ambiguous indicators that do not establish PHP usage."
+    }
+  },
+  "summary": {
+    "pagesCrawled": 3,
+    "featuresTotal": 2,
+    "findingsTotal": 1,
+    "findingsBySeverity": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 1},
+    "findingsByStatus": {"confirmed": 0, "potential": 0, "inconclusive": 1},
+    "durationMs": 1270
+  },
+  "error": null,
+  "startedAt": "2026-05-10T09:15:00.000Z",
+  "completedAt": "2026-05-10T09:15:01.270Z",
+  "createdAt": "2026-05-10T09:15:00.000Z",
+  "counts": {"findings": 1, "features": 2, "pages": 3},
+  "pages": [
+    {"url": "https://legacy.example.invalid/", "httpStatus": 200, "depth": 0},
+    {"url": "https://legacy.example.invalid/legacy.php", "httpStatus": 200, "depth": 1},
+    {"url": "https://legacy.example.invalid/contact", "httpStatus": 200, "depth": 1}
+  ]
+}

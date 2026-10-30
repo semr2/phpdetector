@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import type { ScanSummary } from '@/lib/domain/types';
+import { normalizePhpDetection } from '@/lib/domain/php-detection';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,7 @@ export async function GET(
     },
   });
 
-  if (!scan) {
+  if (!scan || scan.mode !== 'live') {
     return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
   }
 
@@ -32,14 +33,15 @@ export async function GET(
     }
   }
 
-  let phpEvidence: unknown = null;
+  let storedPhp: unknown = null;
   if (scan.phpEvidence) {
     try {
-      phpEvidence = JSON.parse(scan.phpEvidence);
+      storedPhp = JSON.parse(scan.phpEvidence);
     } catch {
-      phpEvidence = null;
+      storedPhp = null;
     }
   }
+  const phpEvidence = normalizePhpDetection(storedPhp, scan.phpDetection, scan.phpFramework);
 
   return NextResponse.json({
     id: scan.id,

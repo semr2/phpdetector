@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { db } from '@/lib/db';
 import { createLogger } from '@/lib/core/logger';
 import { validateTargetUrl, UrlValidationError } from '@/lib/core/url-validation';
 import { assertHostInScope, ScopeViolationError } from '@/lib/core/network-scope';
-import { launchScan } from '@/lib/services/scan-orchestrator';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +16,13 @@ const CreateScanSchema = z.object({
 
 /** GET /api/v1/scans — list recent scans with summary counts. */
 export async function GET() {
+  const [{ db }, { recoverStaleScans }] = await Promise.all([
+    import('@/lib/db'),
+    import('@/lib/services/scan-orchestrator'),
+  ]);
+  await recoverStaleScans();
   const scans = await db.scan.findMany({
+    where: { mode: 'live' },
     orderBy: { createdAt: 'desc' },
     take: 50,
     select: {
@@ -81,19 +85,20 @@ export async function POST(request: NextRequest) {
 
   const { url, demo } = parsed.data;
 
+  if (demo) {
+    return NextResponse.json(
+      { error: 'Demo fixtures are read-only and separate from live scans. Open the dedicated demo dashboard instead.' },
+      { status: 400 },
+    );
+  }
+
   // Pipeline step 1 — API request validation (backend independently rejects).
   let normalizedUrl: string;
   let host: string;
   try {
-    if (demo) {
-      // Demo mode scans the built-in offline fixture.
-      normalizedUrl = url || 'http://demo.shoplite.local';
-      host = 'demo.shoplite.local';
-    } else {
-      const target = validateTargetUrl(url);
-      normalizedUrl = target.url;
-      host = target.host;
-    }
+    const target = validateTargetUrl(url);
+    normalizedUrl = target.url;
+    host = target.host;
   } catch (error) {
     if (error instanceof UrlValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -102,34 +107,36 @@ export async function POST(request: NextRequest) {
   }
 
   // Pipeline step 2 — network scope check BEFORE scan record init (fail fast).
-  if (!demo) {
-    try {
-      await assertHostInScope(host);
-    } catch (error) {
-      const message =
-        error instanceof ScopeViolationError
-          ? error.message
-          : 'Network scope verification failed';
-      log.warn('scan rejected by scope policy', { url: normalizedUrl, reason: message });
-      return NextResponse.json({ error: message }, { status: 403 });
-    }
+  try {
+    await assertHostInScope(host);
+  } catch (error) {
+    const message =
+      error instanceof ScopeViolationError
+        ? error.message
+        : 'Network scope verification failed';
+    log.warn('scan rejected by scope policy', { url: normalizedUrl, reason: message });
+    return NextResponse.json({ error: message }, { status: 403 });
   }
 
   // Pipeline step 3 — scan record initialization.
+  const [{ db }, { launchScan }] = await Promise.all([
+    import('@/lib/db'),
+    import('@/lib/services/scan-orchestrator'),
+  ]);
   const scan = await db.scan.create({
     data: {
       targetUrl: normalizedUrl,
-      mode: demo ? 'demo' : 'live',
+      mode: 'live',
       status: 'queued',
       currentStep: 0,
       progress: 0,
     },
   });
 
-  log.info('scan queued', { scanId: scan.id, url: normalizedUrl, mode: demo ? 'demo' : 'live' });
+  log.info('scan queued', { scanId: scan.id, url: normalizedUrl, mode: 'live' });
 
   // Continue pipeline steps 4–12 in the background.
-  launchScan(scan.id, normalizedUrl, demo ? 'demo' : 'live');
+  launchScan(scan.id, normalizedUrl);
 
   return NextResponse.json({ id: scan.id, status: scan.status }, { status: 201 });
 }

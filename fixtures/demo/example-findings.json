@@ -1,0 +1,40 @@
+{
+  "demo-php-detected": [
+    {
+      "id": "demo-finding-missing-csp",
+      "ruleId": "HDR-004",
+      "title": "Content Security Policy header not observed",
+      "severity": "medium",
+      "confidence": "medium",
+      "status": "potential",
+      "affectedUrl": "https://shoplite-php.example.invalid/",
+      "evidence": [{"source": "response headers", "observation": "The sample response does not include Content-Security-Policy.", "timestamp": "2026-05-12T14:20:02.000Z"}],
+      "remediation": "Review the application's resource requirements and define a restrictive Content-Security-Policy. This is a simulated example requiring review."
+    },
+    {
+      "id": "demo-finding-old-library",
+      "ruleId": "SRC-003",
+      "title": "Legacy JavaScript library signature observed",
+      "severity": "low",
+      "confidence": "medium",
+      "status": "inconclusive",
+      "affectedUrl": "https://shoplite-php.example.invalid/",
+      "evidence": [{"source": "HTML script URL", "observation": "The fixture references jquery-1.12.4.min.js; asset contents were not checked.", "timestamp": "2026-05-12T14:20:02.000Z"}],
+      "remediation": "Confirm the deployed library and upgrade to a supported release if applicable. This is a simulated example, not a verified vulnerability."
+    }
+  ],
+  "demo-php-inconclusive": [
+    {
+      "id": "demo-finding-ambiguous-cookie",
+      "ruleId": "DEMO-001",
+      "title": "Ambiguous security indicator in sample data",
+      "severity": "info",
+      "confidence": "low",
+      "status": "inconclusive",
+      "affectedUrl": "https://legacy.example.invalid/",
+      "evidence": [{"source": "sample response cookie", "observation": "A generic XSRF-TOKEN marker appears in the fixture; it is not proof of a weakness.", "timestamp": "2026-05-10T09:15:01.000Z"}],
+      "remediation": "No vulnerability is established by this indicator. Validate the application's CSRF protections through an authorized review."
+    }
+  ],
+  "demo-php-not-detected": []
+}

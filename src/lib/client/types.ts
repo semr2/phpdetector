@@ -4,6 +4,21 @@
 
 export type ScanStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type PhpDetection = 'likely' | 'not_detected' | 'inconclusive';
+export type EvidenceStrength = 'strong' | 'medium' | 'weak';
+export interface PhpEvidence {
+  indicator: string;
+  value: string;
+  strength: EvidenceStrength;
+  source: 'header' | 'cookie' | 'url' | 'body';
+  explanation: string;
+}
+export interface PhpDetectionResult {
+  status: PhpDetection;
+  evidence: PhpEvidence[];
+  frameworks: string[];
+  phpVersion?: string;
+  assessment: { method: 'heuristic'; calibrated: false; explanation: string };
+}
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type FindingStatus = 'confirmed' | 'potential' | 'inconclusive';
 export type FeatureKind =
@@ -52,7 +67,7 @@ export interface ScanSummary {
 
 export interface ScanDetail extends ScanListItem {
   phpFramework: string | null;
-  phpEvidence: Evidence[] | null;
+  phpEvidence: PhpDetectionResult | null;
   summary: ScanSummary | null;
   startedAt: string | null;
 }

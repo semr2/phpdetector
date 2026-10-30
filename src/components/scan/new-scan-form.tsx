@@ -4,8 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Loader2, Play, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Loader2, Play, TriangleAlert } from 'lucide-react';
 import { apiFetch } from '@/lib/client/types';
 
 interface NewScanFormProps {
@@ -14,7 +13,6 @@ interface NewScanFormProps {
 
 export function NewScanForm({ onScanCreated }: NewScanFormProps) {
   const [url, setUrl] = useState('');
-  const [demo, setDemo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +23,7 @@ export function NewScanForm({ onScanCreated }: NewScanFormProps) {
     try {
       const result = await apiFetch<{ id: string; status: string }>('/api/v1/scans', {
         method: 'POST',
-        body: JSON.stringify({ url: demo && !url ? 'http://demo.shoplite.local' : url, demo }),
+        body: JSON.stringify({ url }),
       });
       setUrl('');
       onScanCreated(result.id);
@@ -46,7 +44,7 @@ export function NewScanForm({ onScanCreated }: NewScanFormProps) {
             placeholder="https://authorized-target.example"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            disabled={submitting || demo}
+            disabled={submitting}
             inputMode="url"
             autoComplete="url"
             className="flex-1"
@@ -65,19 +63,6 @@ export function NewScanForm({ onScanCreated }: NewScanFormProps) {
             )}
           </Button>
         </div>
-      </div>
-
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-dashed p-3">
-        <div className="space-y-0.5">
-          <Label htmlFor="demo-mode" className="flex items-center gap-1.5 text-sm font-medium">
-            <ShieldCheck className="h-4 w-4 text-emerald-600" aria-hidden />
-            Demo fixture mode
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Runs the full 12-step pipeline against a built-in offline PHP app — no network requests leave the sandbox.
-          </p>
-        </div>
-        <Switch id="demo-mode" checked={demo} onCheckedChange={setDemo} disabled={submitting} />
       </div>
 
       {error && (

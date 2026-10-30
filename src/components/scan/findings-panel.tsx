@@ -17,9 +17,10 @@ import { cn } from '@/lib/utils';
 interface FindingsPanelProps {
   scanId: string;
   scanComplete: boolean;
+  apiBase?: string;
 }
 
-export function FindingsPanel({ scanId, scanComplete }: FindingsPanelProps) {
+export function FindingsPanel({ scanId, scanComplete, apiBase = '/api/v1/scans' }: FindingsPanelProps) {
   const [data, setData] = useState<FindingPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,17 +35,18 @@ export function FindingsPanel({ scanId, scanComplete }: FindingsPanelProps) {
       const params = new URLSearchParams({ pageSize: '50' });
       if (severity !== 'all') params.set('severity', severity);
       if (status !== 'all') params.set('status', status);
-      const result = await apiFetch<FindingPage>(`/api/v1/scans/${scanId}/findings?${params}`);
+      const result = await apiFetch<FindingPage>(`${apiBase}/${scanId}/findings?${params}`);
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load findings');
     } finally {
       setLoading(false);
     }
-  }, [scanId, severity, status]);
+  }, [apiBase, scanId, severity, status]);
 
   useEffect(() => {
-    void load();
+    const kickoff = setTimeout(() => void load(), 0);
+    return () => clearTimeout(kickoff);
   }, [load, scanComplete]);
 
   const toggle = (id: string) => {

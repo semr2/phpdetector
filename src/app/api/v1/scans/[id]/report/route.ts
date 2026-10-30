@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import type { Evidence, FindingRecord, FeatureRecord, PhpDetectionResult, ScanSummary } from '@/lib/domain/types';
-import { buildReportHtml, buildReportJson, type ReportInput } from '@/lib/services/report';
+import { normalizePhpDetection } from '@/lib/domain/php-detection';
+import { buildFindingsCsv, buildReportHtml, buildReportJson, type ReportInput } from '@/lib/services/report';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/v1/scans/{id}/report?format=json|html (SRS §8).
+ * GET /api/v1/scans/{id}/report?format=json|html|csv (SRS §8).
  *  - json: canonical machine-readable report (download)
  *  - html: standalone escaped document (view online or print-to-PDF)
+ *  - csv: findings table, one row per finding (formula-injection safe)
  * Query: download=1 forces Content-Disposition: attachment.
  */
 export async function GET(
@@ -25,22 +27,17 @@ export async function GET(
     where: { id },
     include: { findings: true, features: true, pages: true },
   });
-  if (!scan) {
+  if (!scan || scan.mode !== 'live') {
     return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
   }
 
-  let php: PhpDetectionResult;
+  let storedPhp: unknown = null;
   try {
-    const evidence = scan.phpEvidence ? (JSON.parse(scan.phpEvidence) as Evidence[]) : [];
-    php = {
-      result: (scan.phpDetection ?? 'inconclusive') as PhpDetectionResult['result'],
-      framework: scan.phpFramework ?? undefined,
-      evidence,
-      indicators: [],
-    };
+    storedPhp = scan.phpEvidence ? JSON.parse(scan.phpEvidence) : null;
   } catch {
-    php = { result: 'inconclusive', evidence: [], indicators: [] };
+    storedPhp = null;
   }
+  const php: PhpDetectionResult = normalizePhpDetection(storedPhp, scan.phpDetection, scan.phpFramework);
 
   let summary: ScanSummary = {
     pagesCrawled: scan.pages.length,
@@ -96,17 +93,11 @@ export async function GET(
   const input: ReportInput = {
     id: scan.id,
     targetUrl: scan.targetUrl,
-    mode: scan.mode === 'demo' ? 'demo' : 'live',
+    mode: 'live',
     status: scan.status,
     createdAt: scan.createdAt.toISOString(),
     completedAt: scan.completedAt?.toISOString(),
-    php: {
-      result: php.result,
-      framework: php.framework,
-      version: php.version,
-      evidence: php.evidence,
-      indicators: php.indicators,
-    },
+    php,
     summary,
     pages: scan.pages.map((p) => ({ url: p.url, httpStatus: p.httpStatus ?? 0, depth: p.depth })),
     features,
@@ -115,14 +106,26 @@ export async function GET(
   };
 
   if (format === 'html') {
-    // Prefer the pipeline pre-rendered cache; fall back to on-demand build.
-    const html = scan.htmlReportCache ?? buildReportHtml(input);
+    // Rebuild from the normalized result so legacy caches cannot re-expose a
+    // removed, uncalibrated confidence percentage.
+    const html = buildReportHtml(input);
     return new NextResponse(html, {
       status: 200,
       headers: {
         'content-type': 'text/html; charset=utf-8',
         'x-content-type-options': 'nosniff',
         ...(download ? { 'content-disposition': `attachment; filename="scan-report-${scan.id}.html"` } : {}),
+      },
+    });
+  }
+
+  if (format === 'csv') {
+    return new NextResponse(buildFindingsCsv(findings), {
+      status: 200,
+      headers: {
+        'content-type': 'text/csv; charset=utf-8',
+        'x-content-type-options': 'nosniff',
+        'content-disposition': `attachment; filename="scan-findings-${scan.id}.csv"`,
       },
     });
   }
@@ -138,5 +141,5 @@ export async function GET(
     });
   }
 
-  return NextResponse.json({ error: 'Unsupported format. Use json or html.' }, { status: 400 });
+  return NextResponse.json({ error: 'Unsupported format. Use json, html or csv.' }, { status: 400 });
 }

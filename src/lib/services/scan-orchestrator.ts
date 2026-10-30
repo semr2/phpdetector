@@ -8,17 +8,16 @@ import type {
   FindingRecord,
   FeatureRecord,
   RawObservation,
-  ScanMode,
   ScanSummary,
   Severity,
   FindingStatus,
 } from '@/lib/domain/types';
 import { SEVERITY_ORDER } from '@/lib/domain/types';
 import { crawl } from '@/lib/scanner/crawler';
+import { parseHtml } from '@/lib/scanner/html';
 import { extractFeatures } from '@/lib/scanner/feature-extractor';
 import { detectPhp, type RootObservables } from '@/lib/scanner/php-detector';
 import { runRules } from '@/lib/scanner/rules';
-import { buildDemoObservations, DEMO_BASE_URL } from './demo-fixture';
 import { buildReportHtml } from './report';
 
 /**
@@ -30,13 +29,23 @@ import { buildReportHtml } from './report';
  *   5  Fingerprint Analysis       11  Report Generation
  *   6  Bounded Crawl              12  State Finalization
  *
- * Demo mode swaps network steps (2/4/6) for the offline fixture while running
- * fingerprinting, extraction and rules through the exact same code paths.
+ * Demo fixtures are served by a separate read-only service and never enter
+ * this live network scanner or its persistence path.
  */
 
 const log = createLogger('orchestrator');
 
 const SEVERITIES: Severity[] = SEVERITY_ORDER;
+
+/** Best-effort page title for the Page table; never throws. */
+function pageTitle(o: RawObservation): string | null {
+  try {
+    const title = parseHtml(o.body, o.url).title;
+    return title && title !== o.url ? title.slice(0, 300) : null;
+  } catch {
+    return null;
+  }
+}
 const STATUSES: FindingStatus[] = ['confirmed', 'potential', 'inconclusive'];
 
 async function setStep(scanId: string, step: number, extra?: { phpDetection?: string; phpEvidence?: string; phpFramework?: string }): Promise<void> {
@@ -47,7 +56,7 @@ async function setStep(scanId: string, step: number, extra?: { phpDetection?: st
   });
 }
 
-export async function executeScan(scanId: string, targetUrl: string, mode: ScanMode): Promise<void> {
+export async function executeScan(scanId: string, targetUrl: string): Promise<void> {
   const startedAt = Date.now();
   try {
     await db.scan.update({
@@ -57,20 +66,13 @@ export async function executeScan(scanId: string, targetUrl: string, mode: ScanM
 
     // ---------------------------------------------------------------- Step 1
     await setStep(scanId, 1);
-    const target = mode === 'demo'
-      ? { url: DEMO_BASE_URL, host: 'demo.shoplite.local', scheme: 'http' as const }
-      : validateTargetUrl(targetUrl);
-    log.info('pipeline: request validated', { scanId, url: target.url, mode });
+    const target = validateTargetUrl(targetUrl);
+    log.info('pipeline: request validated', { scanId, url: target.url, mode: 'live' });
 
     // ---------------------------------------------------------------- Step 2
     await setStep(scanId, 2);
-    let scopeAddresses: string[] = [];
-    if (mode === 'live') {
-      const scope = await assertHostInScope(target.host);
-      scopeAddresses = scope.addresses;
-    } else {
-      scopeAddresses = ['203.0.113.10 (fixture)'];
-    }
+    const scope = await assertHostInScope(target.host);
+    const scopeAddresses = scope.addresses;
     log.info('pipeline: scope check passed', { scanId, addresses: scopeAddresses });
 
     // ---------------------------------------------------------------- Step 3
@@ -80,35 +82,30 @@ export async function executeScan(scanId: string, targetUrl: string, mode: ScanM
     await setStep(scanId, 4);
     let root: RawObservation;
     let baseError: string | null = null;
-    if (mode === 'demo') {
-      const fixture = buildDemoObservations();
-      root = fixture[0];
-    } else {
-      try {
-        const result = await safeFetch(target.url);
-        root = {
-          url: result.finalUrl,
-          status: result.status,
-          headers: result.headers,
-          setCookies: result.setCookies,
-          body: result.body,
-          depth: 0,
-        };
-      } catch (error) {
-        baseError = error instanceof Error ? error.message : 'Base fetch failed';
-        log.warn('pipeline: base fetch failed', { scanId, error: baseError });
-        // Base fetch failure is fatal for evidence gathering — go to failure.
-        await db.scan.update({
-          where: { id: scanId },
-          data: {
-            status: 'failed',
-            error: `Base fetch failed: ${baseError}`,
-            completedAt: new Date(),
-            progress: 100,
-          },
-        });
-        return;
-      }
+    try {
+      const result = await safeFetch(target.url);
+      root = {
+        url: result.finalUrl,
+        status: result.status,
+        headers: result.headers,
+        setCookies: result.setCookies,
+        body: result.body,
+        depth: 0,
+      };
+    } catch (error) {
+      baseError = error instanceof Error ? error.message : 'Base fetch failed';
+      log.warn('pipeline: base fetch failed', { scanId, error: baseError });
+      // Base fetch failure is fatal for evidence gathering — go to failure.
+      await db.scan.update({
+        where: { id: scanId },
+        data: {
+          status: 'failed',
+          error: `Base fetch failed: ${baseError}`,
+          completedAt: new Date(),
+          progress: 100,
+        },
+      });
+      return;
     }
 
     // ---------------------------------------------------------------- Step 5
@@ -122,22 +119,18 @@ export async function executeScan(scanId: string, targetUrl: string, mode: ScanM
     const php = detectPhp(rootObservables);
     log.info('pipeline: fingerprint complete', {
       scanId,
-      detection: php.result,
-      framework: php.framework ?? null,
-      indicators: php.indicators.length,
+      detection: php.status,
+      frameworks: php.frameworks,
+      evidence: php.evidence.length,
     });
 
     // ---------------------------------------------------------------- Step 6
     await setStep(scanId, 6);
     let observations: RawObservation[];
     let crawlErrors: Array<{ url: string; reason: string }> = [];
-    if (mode === 'demo') {
-      observations = buildDemoObservations();
-    } else {
-      const crawlResult = await crawl(target.url);
-      observations = crawlResult.observations.length > 0 ? crawlResult.observations : [root];
-      crawlErrors = crawlResult.errors;
-    }
+    const crawlResult = await crawl(target.url);
+    observations = crawlResult.observations.length > 0 ? crawlResult.observations : [root];
+    crawlErrors = crawlResult.errors;
 
     // ---------------------------------------------------------------- Step 7
     await setStep(scanId, 7);
@@ -172,7 +165,7 @@ export async function executeScan(scanId: string, targetUrl: string, mode: ScanM
           url: o.url.slice(0, 2000),
           httpStatus: o.status,
           depth: o.depth,
-          title: null,
+          title: pageTitle(o),
         })),
       });
     }
@@ -227,7 +220,7 @@ export async function executeScan(scanId: string, targetUrl: string, mode: ScanM
       htmlReport = buildReportHtml({
         id: scanId,
         targetUrl: target.url,
-        mode,
+        mode: 'live',
         status: 'completed',
         createdAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
@@ -252,9 +245,10 @@ export async function executeScan(scanId: string, targetUrl: string, mode: ScanM
         status: 'completed',
         progress: 100,
         currentStep: TOTAL_STEPS,
-        phpDetection: php.result,
-        phpEvidence: JSON.stringify(php.evidence),
-        phpFramework: php.framework ?? null,
+        phpDetection: php.status,
+        // Store the complete structured detector result in this JSON column.
+        phpEvidence: JSON.stringify(php),
+        phpFramework: php.frameworks.join(', ') || null,
         summary: JSON.stringify(summary),
         htmlReportCache: htmlReport,
         crawlErrorCount: crawlErrors.length,
@@ -264,7 +258,7 @@ export async function executeScan(scanId: string, targetUrl: string, mode: ScanM
 
     log.info('scan completed', {
       scanId,
-      mode,
+      mode: 'live',
       pages: summary.pagesCrawled,
       features: summary.featuresTotal,
       findings: summary.findingsTotal,
@@ -292,9 +286,44 @@ export async function executeScan(scanId: string, targetUrl: string, mode: ScanM
   }
 }
 
+const STALE_SCAN_AFTER_MS = 10 * 60 * 1000;
+const RECOVERY_MIN_INTERVAL_MS = 60 * 1000;
+let lastRecoveryAt = 0;
+
+/**
+ * Scans run in-process, so a restart leaves rows stuck as queued/running.
+ * Any unfinished scan untouched for STALE_SCAN_AFTER_MS is marked failed so
+ * the UI never polls a dead scan forever. Throttled; safe to call often.
+ */
+export async function recoverStaleScans(now: number = Date.now()): Promise<number> {
+  if (now - lastRecoveryAt < RECOVERY_MIN_INTERVAL_MS) return 0;
+  lastRecoveryAt = now;
+  try {
+    const result = await db.scan.updateMany({
+      where: {
+        status: { in: ['queued', 'running'] },
+        updatedAt: { lt: new Date(now - STALE_SCAN_AFTER_MS) },
+      },
+      data: {
+        status: 'failed',
+        error: 'Scan interrupted (server restart or timeout) before completion',
+        completedAt: new Date(now),
+        progress: 100,
+      },
+    });
+    if (result.count > 0) log.warn('recovered stale scans', { count: result.count });
+    return result.count;
+  } catch (error) {
+    log.warn('stale scan recovery failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 0;
+  }
+}
+
 /** Fire-and-forget launcher used by the API route (background execution). */
-export function launchScan(scanId: string, targetUrl: string, mode: ScanMode): void {
-  void executeScan(scanId, targetUrl, mode);
+export function launchScan(scanId: string, targetUrl: string): void {
+  void executeScan(scanId, targetUrl);
 }
 
 // Re-exported for API input validation.

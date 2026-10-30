@@ -10,6 +10,7 @@ import { FeaturesPanel } from './features-panel';
 import type { ScanDetail, ScanSummary, Severity } from '@/lib/client/types';
 import {
   Braces,
+  Table2,
   CheckCircle2,
   Fingerprint,
   FileCode2,
@@ -23,6 +24,7 @@ import {
 interface ScanDetailProps {
   scan: ScanDetail;
   onDeleted?: () => void;
+  apiBase?: string;
 }
 
 const SEVERITY_DOT: Record<Severity, string> = {
@@ -45,7 +47,7 @@ function Stat({ value, label, icon }: { value: number | string; label: string; i
   );
 }
 
-export function ScanDetail({ scan }: ScanDetailProps) {
+export function ScanDetail({ scan, apiBase = '/api/v1/scans' }: ScanDetailProps) {
   const summary: ScanSummary | null = scan.summary;
   const isComplete = scan.status === 'completed';
   const isRunning = scan.status === 'running' || scan.status === 'queued';
@@ -57,21 +59,26 @@ export function ScanDetail({ scan }: ScanDetailProps) {
         <h2 className="text-lg font-bold break-all">{scan.targetUrl}</h2>
         <ScanStatusBadge status={scan.status} />
         {scan.mode === 'demo' && (
-          <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">demo fixture</span>
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-900">SIMULATED</span>
         )}
         <div className="ml-auto flex flex-wrap gap-2">
           <Button asChild size="sm" variant="outline">
-            <a href={`/api/v1/scans/${scan.id}/report?format=json&download=1`} title="Download JSON report">
+            <a href={`${apiBase}/${scan.id}/report?format=json&download=1`} title="Download JSON report">
               <Braces className="mr-1.5 h-4 w-4" aria-hidden /> JSON
             </a>
           </Button>
           <Button asChild size="sm" variant="outline">
-            <a href={`/api/v1/scans/${scan.id}/report?format=html`} target="_blank" rel="noopener noreferrer" title="Open standalone HTML report">
+            <a href={`${apiBase}/${scan.id}/report?format=csv`} title="Download findings as CSV">
+              <Table2 className="mr-1.5 h-4 w-4" aria-hidden /> CSV
+            </a>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <a href={`${apiBase}/${scan.id}/report?format=html`} target="_blank" rel="noopener noreferrer" title="Open standalone HTML report">
               <FileCode2 className="mr-1.5 h-4 w-4" aria-hidden /> HTML report
             </a>
           </Button>
           <Button asChild size="sm" variant="outline">
-            <a href={`/api/v1/scans/${scan.id}/report?format=html&download=1`} title="Download HTML report (print to PDF from the opened page)">
+            <a href={`${apiBase}/${scan.id}/report?format=html&download=1`} title="Download HTML report (print to PDF from the opened page)">
               <FileDown className="mr-1.5 h-4 w-4" aria-hidden /> Download
             </a>
           </Button>
@@ -139,25 +146,29 @@ export function ScanDetail({ scan }: ScanDetailProps) {
       )}
 
       {/* PHP evidence */}
-      {isComplete && scan.phpEvidence && scan.phpEvidence.length > 0 && (
+      {isComplete && scan.phpEvidence && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">PHP fingerprint evidence</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-1.5">
-              {scan.phpEvidence.map((ev, idx) => (
-                <li key={idx} className="rounded-md bg-muted/60 p-2 text-xs">
-                  <span className="mr-1.5 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
-                    {ev.source}
-                  </span>
-                  {ev.observation}
-                </li>
-              ))}
-            </ul>
+            {scan.phpEvidence.evidence.length > 0 ? (
+              <ul className="space-y-1.5">
+                {scan.phpEvidence.evidence.map((ev, idx) => (
+                  <li key={idx} className="rounded-md bg-muted/60 p-2 text-xs">
+                    <span className="mr-1.5 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
+                      {ev.strength} · {ev.source}
+                    </span>
+                    <strong>{ev.indicator}:</strong> {ev.value} — {ev.explanation}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-muted-foreground">No PHP indicators were observed.</p>
+            )}
             <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
-              PHP usage is a technology fact, not a vulnerability — findings below are backed by dedicated evidence.
+              {scan.phpEvidence.assessment.explanation} This is heuristic and not calibrated. PHP usage is a technology fact, not a vulnerability — findings below are backed by dedicated evidence.
             </p>
           </CardContent>
         </Card>
@@ -170,10 +181,10 @@ export function ScanDetail({ scan }: ScanDetailProps) {
           <TabsTrigger value="features">Feature inventory</TabsTrigger>
         </TabsList>
         <TabsContent value="findings" className="mt-3">
-          <FindingsPanel scanId={scan.id} scanComplete={isComplete} />
+          <FindingsPanel scanId={scan.id} scanComplete={isComplete} apiBase={apiBase} />
         </TabsContent>
         <TabsContent value="features" className="mt-3">
-          <FeaturesPanel scanId={scan.id} scanComplete={isComplete} />
+          <FeaturesPanel scanId={scan.id} scanComplete={isComplete} apiBase={apiBase} />
         </TabsContent>
       </Tabs>
 

@@ -18,8 +18,8 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const scan = await db.scan.findUnique({ where: { id }, select: { id: true } });
-  if (!scan) {
+  const scan = await db.scan.findUnique({ where: { id }, select: { id: true, mode: true } });
+  if (!scan || scan.mode !== 'live') {
     return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
   }
 

@@ -1,0 +1,16 @@
+{
+  "demo-php-detected": [
+    {"id": "demo-feature-login", "kind": "form_login", "name": "Account sign-in", "location": "https://shoplite-php.example.invalid/login.php", "details": "{\"method\":\"POST\"}"},
+    {"id": "demo-feature-search", "kind": "form_search", "name": "Product search", "location": "https://shoplite-php.example.invalid/search.php", "details": "{\"method\":\"GET\",\"parameter\":\"q\"}"},
+    {"id": "demo-feature-upload", "kind": "form_upload", "name": "Product image upload", "location": "https://shoplite-php.example.invalid/upload.php", "details": "{\"method\":\"POST\",\"encoding\":\"multipart/form-data\"}"},
+    {"id": "demo-feature-search-param", "kind": "query_param", "name": "q", "location": "https://shoplite-php.example.invalid/search.php?q=example", "details": null},
+    {"id": "demo-feature-php-route", "kind": "php_route", "name": "PHP route", "location": "https://shoplite-php.example.invalid/login.php", "details": null}
+  ],
+  "demo-php-not-detected": [
+    {"id": "demo-static-feature-search", "kind": "form_search", "name": "Documentation search", "location": "https://static.example.invalid/search", "details": "{\"method\":\"GET\"}"}
+  ],
+  "demo-php-inconclusive": [
+    {"id": "demo-legacy-feature-form", "kind": "form_generic", "name": "Contact form", "location": "https://legacy.example.invalid/contact", "details": "{\"method\":\"POST\"}"},
+    {"id": "demo-legacy-feature-route", "kind": "php_route", "name": "PHP-looking route", "location": "https://legacy.example.invalid/legacy.php", "details": null}
+  ]
+}

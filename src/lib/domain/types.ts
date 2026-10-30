@@ -16,7 +16,21 @@ export type ScanStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type ScanMode = 'live' | 'demo';
 
 /** FR-004: PHP fingerprinting outcome. */
-export type PhpDetection = 'likely' | 'not_detected' | 'inconclusive';
+export type PhpStatus = 'likely' | 'not_detected' | 'inconclusive';
+export type PhpDetection = PhpStatus;
+export type EvidenceStrength = 'strong' | 'medium' | 'weak';
+export interface PhpDetectionAssessment {
+  method: 'heuristic';
+  calibrated: false;
+  explanation: string;
+}
+export interface PhpEvidence {
+  indicator: string;
+  value: string;
+  strength: EvidenceStrength;
+  source: 'header' | 'cookie' | 'url' | 'body';
+  explanation: string;
+}
 
 /** Potential impact. Independent of evidence strength. */
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
@@ -59,11 +73,11 @@ export interface RawObservation {
 }
 
 export interface PhpDetectionResult {
-  result: PhpDetection;
-  framework?: string;
-  version?: string;
-  indicators: Array<{ kind: 'strong' | 'medium'; detail: string }>;
-  evidence: Evidence[];
+  status: PhpStatus;
+  evidence: PhpEvidence[];
+  frameworks: string[];
+  phpVersion?: string;
+  assessment: PhpDetectionAssessment;
 }
 
 export interface FeatureRecord {

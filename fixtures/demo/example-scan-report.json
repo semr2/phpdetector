@@ -1,0 +1,52 @@
+{
+  "report": {
+    "generator": "PHP Feature & Vulnerability Detection System 2.0",
+    "generatedAt": "2026-05-12T14:25:00.000Z",
+    "scan": {
+      "id": "demo-php-detected",
+      "targetUrl": "https://shoplite-php.example.invalid/",
+      "mode": "demo",
+      "status": "completed",
+      "createdAt": "2026-05-12T14:20:01.000Z",
+      "completedAt": "2026-05-12T14:20:02.840Z"
+    },
+    "phpDetection": {
+      "status": "likely",
+      "frameworks": ["Laravel"],
+      "phpVersion": "8.2.12",
+      "evidence": [
+        {"indicator": "X-Powered-By PHP disclosure", "value": "PHP/8.2.12", "strength": "strong", "source": "header", "explanation": "The sample response explicitly names PHP; this is simulated fixture evidence."},
+        {"indicator": "Laravel framework signature", "value": "laravel_session cookie", "strength": "medium", "source": "cookie", "explanation": "A Laravel-like cookie is a supporting heuristic, not proof; this observation is simulated."}
+      ],
+      "assessment": {"method": "heuristic", "calibrated": false, "explanation": "Multiple independent fixture indicators support likely PHP usage. This is a simulated example, not a live observation."}
+    },
+    "summary": {
+      "pagesCrawled": 4,
+      "featuresTotal": 5,
+      "findingsTotal": 2,
+      "findingsBySeverity": {"critical": 0, "high": 0, "medium": 1, "low": 1, "info": 0},
+      "findingsByStatus": {"confirmed": 0, "potential": 1, "inconclusive": 1},
+      "durationMs": 1840
+    },
+    "pages": [
+      {"url": "https://shoplite-php.example.invalid/", "httpStatus": 200, "depth": 0},
+      {"url": "https://shoplite-php.example.invalid/login.php", "httpStatus": 200, "depth": 1},
+      {"url": "https://shoplite-php.example.invalid/search.php", "httpStatus": 200, "depth": 1},
+      {"url": "https://shoplite-php.example.invalid/upload.php", "httpStatus": 200, "depth": 1}
+    ],
+    "features": [
+      {"kind": "form_login", "label": "Login form", "name": "Account sign-in", "location": "https://shoplite-php.example.invalid/login.php", "details": {"method": "POST"}},
+      {"kind": "form_search", "label": "Search form", "name": "Product search", "location": "https://shoplite-php.example.invalid/search.php", "details": {"method": "GET", "parameter": "q"}},
+      {"kind": "form_upload", "label": "Upload form", "name": "Product image upload", "location": "https://shoplite-php.example.invalid/upload.php", "details": {"method": "POST", "encoding": "multipart/form-data"}},
+      {"kind": "query_param", "label": "Query parameter", "name": "q", "location": "https://shoplite-php.example.invalid/search.php?q=example", "details": null},
+      {"kind": "php_route", "label": "PHP route", "name": "PHP route", "location": "https://shoplite-php.example.invalid/login.php", "details": null}
+    ],
+    "findings": [
+      {"rule_id": "HDR-004", "title": "Content Security Policy header not observed", "severity": "medium", "confidence": "medium", "status": "potential", "affected_url": "https://shoplite-php.example.invalid/", "evidence": [{"source": "response headers", "observation": "The sample response does not include Content-Security-Policy.", "timestamp": "2026-05-12T14:20:02.000Z"}], "remediation": "Review the application's resource requirements and define a restrictive Content-Security-Policy. This is a simulated example requiring review."},
+      {"rule_id": "SRC-003", "title": "Legacy JavaScript library signature observed", "severity": "low", "confidence": "medium", "status": "inconclusive", "affected_url": "https://shoplite-php.example.invalid/", "evidence": [{"source": "HTML script URL", "observation": "The fixture references jquery-1.12.4.min.js; asset contents were not checked.", "timestamp": "2026-05-12T14:20:02.000Z"}], "remediation": "Confirm the deployed library and upgrade to a supported release if applicable. This is a simulated example, not a verified vulnerability."}
+    ],
+    "crawlErrors": [],
+    "simulated": true,
+    "simulationNotice": "SIMULATED DEMO DATA — no live website was scanned. Example findings are not confirmed vulnerabilities."
+  }
+}

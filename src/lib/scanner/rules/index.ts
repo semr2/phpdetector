@@ -9,6 +9,7 @@ import type {
 } from '@/lib/domain/types';
 import { createLogger } from '@/lib/core/logger';
 import { parseHtml } from '@/lib/scanner/html';
+import { analyzeSource, type SourceSignal, type SourceSignalKind } from '@/lib/scanner/source-analyzer';
 
 /**
  * FR-007 — Passive security rules engine.
@@ -28,11 +29,17 @@ export interface RuleContext {
   /** All observations collected during the bounded crawl. */
   observations: RawObservation[];
   php: PhpDetectionResult;
+  /** Source-analysis signals; computed once by runRules when not supplied. */
+  signals?: SourceSignal[];
 }
 
 export interface RuleEvaluation {
   evidence: Evidence[];
   affectedUrl?: string;
+  /** Optional per-evaluation overrides; severity and confidence stay independent. */
+  severity?: Severity;
+  confidence?: Confidence;
+  status?: FindingStatus;
 }
 
 export interface PassiveRule {
@@ -74,6 +81,24 @@ function sessionCookies(cookies: string[]): Array<{ raw: string; parsed: ReturnT
   return cookies
     .map((raw) => ({ raw, parsed: parseCookie(raw) }))
     .filter((c) => /PHPSESSID|session|sess/i.test(c.parsed.name));
+}
+
+
+function signalsOf(ctx: RuleContext, ...kinds: SourceSignalKind[]): SourceSignal[] {
+  return (ctx.signals ?? []).filter((s) => kinds.includes(s.kind));
+}
+
+function signalEvidence(source: string, signals: SourceSignal[], max = 5): Evidence[] {
+  return signals.slice(0, max).map((s) => {
+    const location = s.line ? `${s.url}:${s.line}` : s.url;
+    const reason = s.meta?.reason ? ` Classification: ${s.meta.reason}` : '';
+    const context = s.context ? ` Context: ${s.context}` : '';
+    return headerEvidence(source, `${location} — ${s.detail}${reason}${context}`);
+  });
+}
+
+function firstUrl(signals: SourceSignal[]): string | undefined {
+  return signals[0]?.url;
 }
 
 const log = createLogger('rules-engine');
@@ -331,12 +356,12 @@ export const PASSIVE_RULES: PassiveRule[] = [
           evidence: [headerEvidence('html_meta_generator', `Generator tag: ${generator}`)],
         };
       }
-      if (ctx.php.framework) {
+      if (ctx.php.frameworks.length > 0) {
         return {
           evidence: [
             headerEvidence(
               'html_content',
-              `Framework signature identifies ${ctx.php.framework}`,
+              `Framework signature identifies ${ctx.php.frameworks.join(', ')}`,
             ),
           ],
         };
@@ -375,6 +400,213 @@ export const PASSIVE_RULES: PassiveRule[] = [
         return { evidence };
       }
       return null;
+    },
+  },
+
+
+  // ---------------------------------------------------------------------------
+  // Source analysis (passive — derived from already-collected page source)
+  // ---------------------------------------------------------------------------
+  {
+    id: 'PHP-SEC-SRC-001',
+    title: 'Credential or key in the format of a known provider exposed in page source',
+    description:
+      'Page source contains a string matching a known credential format. Test and documentation context is labeled inconclusive; credential validity is never checked.',
+    severity: 'high',
+    confidence: 'medium',
+    status: 'potential',
+    remediation:
+      'Revoke and rotate the exposed credential, remove it from client-delivered code, and keep secrets server-side or in a secrets manager.',
+    evaluate(ctx) {
+      const hits = signalsOf(ctx, 'secret_vendor');
+      if (hits.length === 0) return null;
+      const confirmedKeyMaterial = hits.some(
+        (h) => h.meta?.private_key_material === 'true' && h.meta?.classification === 'confirmed',
+      );
+      const critical = hits.some(
+        (h) => h.meta?.critical === 'true' && h.meta?.private_key_material === 'true' && h.meta?.classification === 'confirmed',
+      );
+      const allInconclusive = hits.every((h) => h.meta?.classification === 'inconclusive');
+      return {
+        evidence: signalEvidence('page_source', hits),
+        affectedUrl: firstUrl(hits),
+        severity: critical ? 'critical' : 'high',
+        confidence: critical ? 'high' : 'medium',
+        status: confirmedKeyMaterial ? 'confirmed' : allInconclusive ? 'inconclusive' : 'potential',
+      };
+    },
+  },
+  {
+    id: 'PHP-SEC-SRC-002',
+    title: 'Credential-like value assigned in client-side code',
+    description:
+      'Inline script or comment assigns a literal to a variable named like a password, secret or token. The value may be a placeholder or a public identifier.',
+    severity: 'medium',
+    confidence: 'low',
+    status: 'potential',
+    remediation:
+      'Do not embed credentials in client code. Move them server-side and use short-lived, scoped tokens for browser use.',
+    evaluate(ctx) {
+      const hits = signalsOf(ctx, 'secret_generic');
+      if (hits.length === 0) return null;
+      const allInconclusive = hits.every((h) => h.meta?.classification === 'inconclusive');
+      return {
+        evidence: signalEvidence('page_source', hits),
+        affectedUrl: firstUrl(hits),
+        status: allInconclusive ? 'inconclusive' : 'potential',
+        confidence: allInconclusive ? 'low' : 'medium',
+      };
+    },
+  },
+  {
+    id: 'PHP-SEC-SRC-003',
+    title: 'PHP error output or filesystem path disclosed',
+    description:
+      'The response contains PHP warnings, errors or stack traces that reveal server-side file paths and code structure.',
+    severity: 'medium',
+    confidence: 'high',
+    status: 'confirmed',
+    remediation:
+      "Set 'display_errors = Off' and 'log_errors = On' in production, and handle errors with a generic error page.",
+    evaluate(ctx) {
+      const hits = signalsOf(ctx, 'php_error');
+      if (hits.length === 0) return null;
+      return { evidence: signalEvidence('page_source', hits), affectedUrl: firstUrl(hits) };
+    },
+  },
+  {
+    id: 'PHP-SEC-SRC-004',
+    title: 'Sensitive developer comment left in HTML',
+    description:
+      'An HTML comment mentions credentials, debug or internal details, or filesystem paths. Comments are delivered to every visitor.',
+    severity: 'low',
+    confidence: 'medium',
+    status: 'potential',
+    remediation:
+      'Strip HTML comments from production output (build step or template engine) and keep internal notes in the repository.',
+    evaluate(ctx) {
+      const hits = signalsOf(ctx, 'html_comment');
+      if (hits.length === 0) return null;
+      return { evidence: signalEvidence('html_comment', hits), affectedUrl: firstUrl(hits) };
+    },
+  },
+  {
+    id: 'PHP-SEC-SRC-005',
+    title: 'Source map referenced in production page source',
+    description:
+      'A sourceMappingURL reference may let visitors reconstruct original client source. The map file itself was not requested, so exposure is unverified.',
+    severity: 'low',
+    confidence: 'medium',
+    status: 'potential',
+    remediation:
+      'Do not publish source maps to production, or restrict them to authenticated users and remove the sourceMappingURL comment.',
+    evaluate(ctx) {
+      const hits = signalsOf(ctx, 'source_map');
+      if (hits.length === 0) return null;
+      return { evidence: signalEvidence('page_source', hits), affectedUrl: firstUrl(hits) };
+    },
+  },
+  {
+    id: 'PHP-SEC-SRC-006',
+    title: 'Third-party resource loaded without Subresource Integrity',
+    description:
+      'A cross-origin script or stylesheet has no integrity attribute, so a compromise of that host would run attacker code in the page.',
+    severity: 'low',
+    confidence: 'high',
+    status: 'potential',
+    remediation:
+      "Add 'integrity' and 'crossorigin' attributes to third-party resources, or self-host them.",
+    evaluate(ctx) {
+      const hits = signalsOf(ctx, 'missing_sri');
+      if (hits.length === 0) return null;
+      return { evidence: signalEvidence('page_source', hits), affectedUrl: firstUrl(hits) };
+    },
+  },
+  {
+    id: 'PHP-SEC-SRC-007',
+    title: 'Internal or private host referenced in page source',
+    description:
+      'Page source links to a private IP address, localhost or an internal-only domain, revealing network layout or leftover development configuration.',
+    severity: 'low',
+    confidence: 'medium',
+    status: 'potential',
+    remediation:
+      'Remove internal hostnames and addresses from client-delivered code and templates; use environment-specific configuration.',
+    evaluate(ctx) {
+      const hits = signalsOf(ctx, 'internal_host');
+      if (hits.length === 0) return null;
+      return { evidence: signalEvidence('page_source', hits), affectedUrl: firstUrl(hits) };
+    },
+  },
+  {
+    id: 'PHP-SEC-SRC-008',
+    title: 'Client library version with a known advisory',
+    description:
+      'A referenced JavaScript library version is older than the first release fixing a published advisory. Exploitability depends on how the library is used.',
+    severity: 'medium',
+    confidence: 'medium',
+    status: 'potential',
+    remediation: 'Upgrade the library to a supported, patched release and re-test affected pages.',
+    evaluate(ctx) {
+      const hits = signalsOf(ctx, 'library_version').filter((s) => s.meta?.outdated === 'true');
+      if (hits.length === 0) return null;
+      return { evidence: signalEvidence('page_source', hits), affectedUrl: firstUrl(hits) };
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Response hygiene
+  // ---------------------------------------------------------------------------
+  {
+    id: 'PHP-SEC-CORS-001',
+    title: 'Permissive CORS policy',
+    description:
+      "Responses allow any origin together with credentials, or allow the 'null' origin, which weakens the same-origin policy.",
+    severity: 'medium',
+    confidence: 'medium',
+    status: 'potential',
+    remediation:
+      "Reflect only an explicit allow-list of origins, never combine credentials with a wildcard, and do not allow the 'null' origin.",
+    evaluate(ctx) {
+      const evidence: Evidence[] = [];
+      for (const obs of ctx.observations) {
+        const origin = obs.headers['access-control-allow-origin']?.trim();
+        if (!origin) continue;
+        const creds = /^true$/i.test(obs.headers['access-control-allow-credentials']?.trim() ?? '');
+        if ((origin === '*' && creds) || origin.toLowerCase() === 'null') {
+          evidence.push(
+            headerEvidence(
+              'http_response_header',
+              `${obs.url} sends Access-Control-Allow-Origin: ${origin}${creds ? ' with Access-Control-Allow-Credentials: true' : ''}`,
+            ),
+          );
+        }
+        if (evidence.length >= 3) break;
+      }
+      return evidence.length > 0 ? { evidence, affectedUrl: undefined } : null;
+    },
+  },
+  {
+    id: 'PHP-SEC-DSC-003',
+    title: 'Directory listing enabled',
+    description:
+      'A page looks like an automatic web-server directory index, exposing file names and structure.',
+    severity: 'medium',
+    confidence: 'high',
+    status: 'confirmed',
+    remediation:
+      "Disable directory indexing ('Options -Indexes' on Apache, 'autoindex off' on nginx) or add an index document.",
+    evaluate(ctx) {
+      const evidence: Evidence[] = [];
+      let first: string | undefined;
+      for (const obs of ctx.observations) {
+        if (/<(?:title|h1)>\s*Index of \//i.test(obs.body)) {
+          first ??= obs.url;
+          evidence.push(headerEvidence('html_content', `${obs.url} looks like a directory index ("Index of /")`));
+        }
+        if (evidence.length >= 3) break;
+      }
+      return evidence.length > 0 ? { evidence, affectedUrl: first } : null;
     },
   },
 
@@ -445,8 +677,9 @@ export const PASSIVE_RULES: PassiveRule[] = [
  * Execute all passive rules against the collected context.
  * Pure function: same evidence in, same findings out (deterministic pipeline).
  */
-export function runRules(ctx: RuleContext): FindingRecord[] {
+export function runRules(input: RuleContext): FindingRecord[] {
   const findings: FindingRecord[] = [];
+  const ctx: RuleContext = { ...input, signals: input.signals ?? analyzeSource(input.observations) };
   for (const rule of PASSIVE_RULES) {
     try {
       const evaluation = rule.evaluate(ctx);
@@ -454,9 +687,9 @@ export function runRules(ctx: RuleContext): FindingRecord[] {
         findings.push({
           ruleId: rule.id,
           title: rule.title,
-          severity: rule.severity,
-          confidence: rule.confidence,
-          status: rule.status,
+          severity: evaluation.severity ?? rule.severity,
+          confidence: evaluation.confidence ?? rule.confidence,
+          status: evaluation.status ?? rule.status,
           affectedUrl: evaluation.affectedUrl ?? ctx.root.url,
           evidence: evaluation.evidence,
           remediation: rule.remediation,

@@ -18,9 +18,10 @@ const KIND_BADGE_STYLES: Partial<Record<FeatureKind, string>> = {
 interface FeaturesPanelProps {
   scanId: string;
   scanComplete: boolean;
+  apiBase?: string;
 }
 
-export function FeaturesPanel({ scanId, scanComplete }: FeaturesPanelProps) {
+export function FeaturesPanel({ scanId, scanComplete, apiBase = '/api/v1/scans' }: FeaturesPanelProps) {
   const [features, setFeatures] = useState<FeatureItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +32,9 @@ export function FeaturesPanel({ scanId, scanComplete }: FeaturesPanelProps) {
       setLoading(true);
       setError(null);
       try {
-        const detail = await apiFetch<{ counts: { features: number } }>(`/api/v1/scans/${scanId}`);
+        const detail = await apiFetch<{ counts: { features: number } }>(`${apiBase}/${scanId}`);
         if (detail.counts.features > 0 || scanComplete) {
-          const result = await apiFetch<{ features: FeatureItem[] }>(`/api/v1/scans/${scanId}/features`);
+          const result = await apiFetch<{ features: FeatureItem[] }>(`${apiBase}/${scanId}/features`);
           if (!cancelled) setFeatures(result.features);
         } else if (!cancelled) {
           setFeatures([]);
@@ -48,7 +49,7 @@ export function FeaturesPanel({ scanId, scanComplete }: FeaturesPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [scanId, scanComplete]);
+  }, [apiBase, scanId, scanComplete]);
 
   if (loading) {
     return (

@@ -6,6 +6,7 @@ import type {
   ScanSummary,
 } from '@/lib/domain/types';
 import { FEATURE_KIND_LABELS, type FeatureKind } from '@/lib/domain/types';
+export { buildFindingsCsv, csvCell } from './csv';
 
 /**
  * Report generation (SRS §5 step 11). Produces:
@@ -22,7 +23,11 @@ export interface ReportInput {
   status: string;
   createdAt: string;
   completedAt?: string;
-  php: Pick<PhpDetectionResult, 'result' | 'framework' | 'version' | 'evidence' | 'indicators'>;
+  /** Optional fixed generation timestamp for deterministic fixture reports. */
+  generatedAt?: string;
+  /** Explicit notice used by simulated reports. */
+  simulationNotice?: string;
+  php: PhpDetectionResult;
   summary: ScanSummary;
   pages: Array<{ url: string; httpStatus: number; depth: number }>;
   features: FeatureRecord[];
@@ -34,7 +39,7 @@ export function buildReportJson(input: ReportInput): Record<string, unknown> {
   return {
     report: {
       generator: 'PHP Feature & Vulnerability Detection System 2.0',
-      generatedAt: new Date().toISOString(),
+      generatedAt: input.generatedAt ?? new Date().toISOString(),
       scan: {
         id: input.id,
         targetUrl: input.targetUrl,
@@ -44,11 +49,11 @@ export function buildReportJson(input: ReportInput): Record<string, unknown> {
         completedAt: input.completedAt ?? null,
       },
       phpDetection: {
-        result: input.php.result,
-        framework: input.php.framework ?? null,
-        version: input.php.version ?? null,
-        indicators: input.php.indicators,
+        status: input.php.status,
+        frameworks: input.php.frameworks,
+        phpVersion: input.php.phpVersion ?? null,
         evidence: input.php.evidence,
+        assessment: input.php.assessment,
       },
       summary: input.summary,
       pages: input.pages,
@@ -70,6 +75,13 @@ export function buildReportJson(input: ReportInput): Record<string, unknown> {
         remediation: f.remediation,
       })),
       crawlErrors: input.crawlErrors ?? [],
+      ...(input.mode === 'demo'
+        ? {
+            simulated: true,
+            simulationNotice:
+              input.simulationNotice ?? 'SIMULATED DEMO DATA — no live website was scanned. Example findings are not confirmed vulnerabilities.',
+          }
+        : {}),
     },
   };
 }
@@ -148,7 +160,7 @@ export function buildReportHtml(input: ReportInput): string {
     .join('\n');
 
   const phpEvidenceHtml = input.php.evidence
-    .map((ev) => `<li><code>${e(ev.source)}</code> — ${e(ev.observation)}</li>`)
+    .map((ev) => `<li><strong>${e(ev.indicator)}</strong> (${e(ev.strength)}, ${e(ev.source)}) — ${e(ev.value)}<br>${e(ev.explanation)}</li>`)
     .join('\n');
 
   return `<!DOCTYPE html>
@@ -193,6 +205,7 @@ export function buildReportHtml(input: ReportInput): string {
   .remediation { font-size: 13px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 8px 12px; }
   ul { margin: 6px 0; }
   .note { font-size: 12px; color: #64748b; }
+  .simulation-banner { border: 2px solid #b45309; background: #fffbeb; color: #78350f; border-radius: 8px; padding: 12px 14px; margin: 16px 0; font-weight: 700; }
   footer { margin-top: 40px; border-top: 1px solid #cbd5e1; padding-top: 12px; font-size: 12px; color: #64748b; }
   @media print {
     body { background: #fff; }
@@ -211,12 +224,13 @@ export function buildReportHtml(input: ReportInput): string {
       &nbsp;|&nbsp; Mode: ${e(input.mode)}
       <br>Completed: ${e(input.completedAt ?? input.createdAt)}
       &nbsp;|&nbsp; PHP detection:
-      <span class="badge ${e(input.php.result)}">${e(input.php.result)}</span>
-      ${input.php.framework ? `&nbsp;|&nbsp; Stack: <strong>${e(input.php.framework)}</strong>` : ''}
-      ${input.php.version ? ` (${e(input.php.version)})` : ''}
+      <span class="badge ${e(input.php.status)}">${e(input.php.status)}</span>
+      ${input.php.frameworks.length ? `&nbsp;|&nbsp; Stack: <strong>${e(input.php.frameworks.join(', '))}</strong>` : ''}
+      ${input.php.phpVersion ? ` (${e(input.php.phpVersion)})` : ''}
     </p>
     <p class="note">Evidence-driven assessment. A technology or feature alone is never reported as a vulnerability; findings are backed by the observations listed below.</p>
   </header>
+  ${input.mode === 'demo' ? `<div class="simulation-banner">${e(input.simulationNotice ?? 'SIMULATED DEMO DATA — no live website was scanned. Example findings are not confirmed vulnerabilities.')}</div>` : ''}
 
   <h2>Executive Summary</h2>
   <div class="statgrid">
@@ -229,9 +243,9 @@ export function buildReportHtml(input: ReportInput): string {
 
   <h2>PHP Fingerprinting</h2>
   <div class="card">
-    <p><strong>Result:</strong> <span class="badge ${e(input.php.result)}">${e(input.php.result)}</span></p>
+    <p><strong>Result:</strong> <span class="badge ${e(input.php.status)}">${e(input.php.status)}</span></p>
+    <p class="note">${e(input.php.assessment.explanation)} (Heuristic; not calibrated.)</p>
     <ul class="evidence">${phpEvidenceHtml || '<li>No PHP indicators observed.</li>'}</ul>
-    ${input.php.indicators.length ? `<p class="note">Indicators: ${input.php.indicators.map((i) => e(i.detail)).join(' · ')}</p>` : ''}
   </div>
 
   <h2>Findings (${e(input.findings.length)})</h2>

@@ -121,6 +121,9 @@ export default function Home() {
             <Activity className={`h-3.5 w-3.5 ${health === 'ok' ? 'text-emerald-600' : health === 'down' ? 'text-red-600' : 'text-muted-foreground'}`} aria-hidden />
             <span className="text-muted-foreground">{health === 'ok' ? 'API online' : health === 'down' ? 'API unreachable' : 'checking…'}</span>
           </div>
+          <Button asChild variant="outline" size="sm">
+            <a href="/demo">Demo showcase</a>
+          </Button>
         </div>
       </header>
 

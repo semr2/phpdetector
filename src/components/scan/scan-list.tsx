@@ -30,8 +30,9 @@ export function ScanList({ scans, selectedId, onSelect }: ScanListProps) {
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-8 text-center">
         <FileSearch className="h-8 w-8 text-muted-foreground/50" aria-hidden />
         <p className="text-sm text-muted-foreground">
-          No scans yet. Enter a target URL above or toggle demo mode to see the pipeline in action.
+          No live scans yet. Enter an authorized target above, or open the separate demo showcase to browse simulated examples.
         </p>
+        <a className="text-sm font-medium text-primary underline underline-offset-4" href="/demo">Open demo showcase</a>
       </div>
     );
   }
@@ -56,7 +57,7 @@ export function ScanList({ scans, selectedId, onSelect }: ScanListProps) {
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>{formatDate(scan.createdAt)}</span>
               {scan.mode === 'demo' && (
-                <span className="rounded bg-muted px-1.5 py-0.5 font-medium">demo</span>
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900">SIMULATED</span>
               )}
               <span className="inline-flex items-center gap-1">
                 <ShieldAlert className="h-3 w-3" aria-hidden />
